@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import time
 from collections.abc import Mapping, MutableMapping
 from types import MappingProxyType, UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
@@ -7,6 +9,7 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 from astrbot.api import logger
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.star.context import Context
+from astrbot.core.star.star_tools import StarTools
 
 
 class ConfigNode:
@@ -127,15 +130,32 @@ class NoticeConfig(ConfigNode):
         return group_id in self.mutual_blacklist
 
 
+class BeefriendConfig(ConfigNode):
+    # 手动/自动求加好友
+    default_reasons: list[str]
+    history_count: int
+    cooldown_days: int
+    auto: bool
+    auto_interval: int
+    auto_delay: int
+
+
 class PluginConfig(ConfigNode):
     manage_group: str
     manage_users: list[str]
     check: CheckConfig
     request: RequestConfig
     notice: NoticeConfig
+    beefriend: BeefriendConfig
 
     def __init__(self, config: AstrBotConfig, context: Context):
         super().__init__(config)
+
+        # 求加好友冷却记录 {user_id: 时间戳}，持久化到插件数据目录
+        self._beefriend_state_path = (
+            StarTools.get_data_dir("astrbot_plugin_relationship") / "beefriend_state.json"
+        )
+        self._beefriend_state: dict[str, float] = self._load_befriend_state()
 
         # 1. 管理员 ID
         self.admins_id = self._clean_ids(context.get_config().get("admins_id", []))
@@ -228,3 +248,58 @@ class PluginConfig(ConfigNode):
             self.manage_users.remove(uid)
             self.save_config()
             logger.info(f"用户 {uid} 已从审批员移除")
+
+    # ====================== 求加好友冷却 ======================
+
+    def _load_befriend_state(self) -> dict[str, float]:
+        try:
+            if self._beefriend_state_path.exists():
+                return json.loads(self._beefriend_state_path.read_text("utf-8"))
+        except Exception:
+            logger.exception("加载求加好友状态失败，重置")
+        return {}
+
+    def _save_befriend_state(self) -> None:
+        try:
+            self._beefriend_state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._beefriend_state_path.write_text(
+                json.dumps(self._beefriend_state, ensure_ascii=False, indent=2), "utf-8"
+            )
+        except Exception:
+            logger.exception("保存求加好友状态失败")
+
+    def in_befriend_cooldown(self, user_id: int | str) -> bool:
+        """该用户是否在求加好友冷却期内"""
+        ts = self._beefriend_state.get(str(user_id))
+        if not ts:
+            return False
+        cooldown = self.beefriend.cooldown_days * 86400
+        return (time.time() - ts) < cooldown
+
+    def befriend_cooldown_left(self, user_id: int | str) -> float:
+        """该用户求加好友冷却剩余秒数，不在冷却期返回 0"""
+        ts = self._beefriend_state.get(str(user_id))
+        if not ts:
+            return 0.0
+        left = self.beefriend.cooldown_days * 86400 - (time.time() - ts)
+        return left if left > 0 else 0.0
+
+    def mark_befriend_sent(self, user_id: int | str) -> None:
+        """标记已对该用户发起求加好友，进入冷却"""
+        self._beefriend_state[str(user_id)] = time.time()
+        self._save_befriend_state()
+        logger.info(f"用户 {user_id} 已标记求加好友，进入冷却")
+
+    def reset_befriend_cooldown(self) -> int:
+        """清空全部求加好友冷却记录，返回被清掉的条数"""
+        n = len(self._beefriend_state)
+        self._beefriend_state.clear()
+        self._save_befriend_state()
+        logger.info(f"求加好友冷却已重置（清除 {n} 条记录）")
+        return n
+
+    def most_long_uncontacted(self, candidates: list[str]) -> str | None:
+        """从候选列表里挑最久没找过的用户（没记录的视为最久）"""
+        if not candidates:
+            return None
+        return min(candidates, key=lambda uid: self._beefriend_state.get(uid, 0.0))

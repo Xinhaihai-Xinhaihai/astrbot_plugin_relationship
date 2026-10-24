@@ -166,5 +166,73 @@
                 "default": []
             }
         }
+    },
+    "beefriend": {
+        "description": "求加好友配置",
+        "hint": "bot 在群里 @ 某人并推送自己的名片，请对方把 bot 加为好友（反向好友申请）。手动发「找」「求好友」触发，也可开启后台自动找",
+        "type": "object",
+        "items": {
+            "default_reasons": {
+                "description": "默认话术",
+                "hint": "AI 不可用时随机挑一条作为求加好友话术，{name} 会被替换成对方昵称",
+                "type": "list",
+                "default": [
+                    "哈喽，我是群里的 bot，想找你加个好友聊聊天，方便的话点我名片把我加一下呗～",
+                    "群里见你挺眼熟的，想加你好友，要是有空就点我名片把我加上啦",
+                    "在吗，我是群里的机器人，想加个好友，之后有问题可以直接找我～",
+                    "打扰啦，群里的 bot，想跟你加个好友，不介意的话点我名片加一下呗"
+                ]
+            },
+            "history_count": {
+                "description": "参考聊天条数",
+                "hint": "生成话术时，参考对方近期多少条聊天记录（群聊有效）",
+                "type": "int",
+                "slider": {
+                    "min": 0,
+                    "max": 30,
+                    "step": 1
+                },
+                "default": 10
+            },
+            "cooldown_days": {
+                "description": "求加好友冷却天数",
+                "hint": "同一个人在冷却期内只会被找一次",
+                "type": "int",
+                "slider": {
+                    "min": 1,
+                    "max": 90,
+                    "step": 1
+                },
+                "default": 7
+            },
+            "auto": {
+                "description": "后台自动求加好友",
+                "hint": "开启后，bot 会定时从所有群成员里挑最久没找过的人主动去求加好友",
+                "type": "bool",
+                "default": false
+            },
+            "auto_interval": {
+                "description": "自动寻找间隔（分钟）",
+                "hint": "后台自动求加好友的间隔时间",
+                "type": "int",
+                "slider": {
+                    "min": 5,
+                    "max": 1440,
+                    "step": 5
+                },
+                "default": 30
+            },
+            "auto_delay": {
+                "description": "单次发送间隔（秒）",
+                "hint": "每次求加好友发送后的等待时间，避免连续发送",
+                "type": "int",
+                "slider": {
+                    "min": 0,
+                    "max": 600,
+                    "step": 10
+                },
+                "default": 10
+            }
+        }
     }
 }

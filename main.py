@@ -4,9 +4,11 @@ from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
+from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.filter.permission import PermissionType
 from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterType
 
+from .core.beefriend import BeFriendHandle
 from .core.config import PluginConfig
 from .core.contact import ContactHandle
 from .core.forward import ForwardTool
@@ -24,6 +26,17 @@ class RelationshipPlugin(Star):
         self.request = RequestHandle(self.cfg)
         self.notice = NoticeHandle(self.cfg)
         self.contact = ContactHandle(self.cfg)
+        self.beefriend = BeFriendHandle(context, self.cfg)
+
+    @filter.on_platform_loaded()
+    async def on_platform_loaded(self):
+        """平台加载完成时，启动求加好友后台任务（若开启）"""
+        self.beefriend.start()
+
+    @filter.on_plugin_unloaded()
+    async def on_plugin_unloaded(self, metadata):
+        """插件卸载时停止后台任务"""
+        self.beefriend.stop()
 
     @filter.permission_type(PermissionType.ADMIN)
     @filter.command("群列表")
@@ -123,6 +136,24 @@ class RelationshipPlugin(Star):
     async def on_contact(self, event: AiocqhttpMessageEvent):
         """推荐 <群号/@群友/@qq>"""
         await self.contact.contact(event)
+
+    @filter.permission_type(PermissionType.ADMIN)
+    @filter.command("重置冷却", alias={"重置求好友冷却"})
+    async def reset_befriend_cooldown(self, event: AiocqhttpMessageEvent):
+        """重置求加好友冷却（仅管理员，方便测试）"""
+        n = self.cfg.reset_befriend_cooldown()
+        yield event.plain_result(f"求加好友冷却已重置，清掉 {n} 条记录")
+
+    @filter.command("找", alias={"求好友", "beefriend"})
+    async def befriend(self, event: AiocqhttpMessageEvent, raw: GreedyStr):
+        """找 <@某人|QQ号> 让某人主动加 bot 为好友（不带参数则从当前群挑最久没找过的人）"""
+        sender = event.get_sender_id()
+        if not (sender in self.cfg.manage_users or sender == self.cfg.admin_id):
+            yield event.plain_result("只有审批员才能用这个")
+            return
+        raw = (raw or "").strip()
+        result = await self.beefriend.befriend(event, raw)
+        yield event.plain_result(result)
 
     @filter.command("加好友")
     async def add_group(self, event: AiocqhttpMessageEvent):
